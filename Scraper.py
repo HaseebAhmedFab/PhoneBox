@@ -6,6 +6,8 @@ import random
 from typing import Tuple, List
 import time  # For total time measurement
 import os
+import csv   # <-- NEW
+from datetime import datetime  # <-- NEW
 from dotenv import load_dotenv
 
 # ----------------------------
@@ -13,7 +15,7 @@ from dotenv import load_dotenv
 # ----------------------------
 load_dotenv()
 ZYTE_API_KEY = os.getenv("ZYTE_API_KEY")
-ZYTE_ENDPOINT = "https://api.zyte.com/v1/extract"
+ZYTE_ENDPOINT = os.getenv("ZYTE_ENDPOINT")
 
 # ----------------------------
 # Helper functions
@@ -163,6 +165,39 @@ async def run_all_devices(devices: List[dict], concurrency_limit: int = 5):
     results = await asyncio.gather(*tasks)
     return results
 
+
+def upsert_to_csv(
+    rows: List[Tuple[str, str, str, str, str, str, str]],
+    filepath: str,
+    key_idx: Tuple[int, int, int, int] = (0, 1, 2, 3),  # Product, Capacity, Condition, Network
+) -> None:
+
+    os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+    header = ["Product", "Capacity", "Condition", "Network Lock", "Max Price", "Company", "URL"]
+
+    existing = {}
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            existing_header = next(reader, None)
+            for r in reader:
+                if not r:
+                    continue
+                k = tuple(r[i] for i in key_idx)
+                existing[k] = r
+
+    # upsert new rows
+    for r in rows:
+        k = tuple(r[i] for i in key_idx)
+        existing[k] = list(r)
+
+    # write back
+    with open(filepath, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        for k in sorted(existing.keys()):
+            writer.writerow(existing[k])
+
 # ----------------------------
 # Main function
 # ----------------------------
@@ -187,6 +222,11 @@ async def main():
 
     for row in results:
         print(",".join(row))
+
+    # ---- NEW: write CSV ----
+    out_path = "outputs/scrape_results.csv"
+    upsert_to_csv(results, out_path)
+    print(f"\n📄 CSV updated -> {out_path}")     
     
     print(f"\n⏱ Total scraping time: {end_time - start_time:.2f} seconds")
 
